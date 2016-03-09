@@ -122,26 +122,29 @@ class DPSPlugin extends PaymethodPlugin {
 	 */
 	function displayPaymentForm($queuedPaymentId, &$queuedPayment, &$request) {
 		if (!$this->isConfigured()) return false;
+
+		session_start();
+
 		AppLocale::requireComponents(LOCALE_COMPONENT_APPLICATION_COMMON);
 		$journal =& $request->getJournal();
 		$user =& $request->getUser();
 
 		// print_r($user);
 		
-		$params = array(
+		// $params = array(
 			// 'charset' => Config::getVar('i18n', 'client_charset'),
 
 		// TODO figure out what these keys mean eg. business
-
-			'item_name' => $queuedPayment->getName(),
-			'item_description' => $queuedPayment->getDescription(), 
-			'amount' => sprintf('%.2F', $queuedPayment->getAmount()),
+// 
+			// 'item_name' => $queuedPayment->getName(),
+			// 'item_description' => $queuedPayment->getDescription(), 
+			// 'amount' => sprintf('%.2F', $queuedPayment->getAmount()),
 			// 'quantity' => 1,
 			// 'no_note' => 1,
 			// 'no_shipping' => 1,
 			// 'currency_code' => $queuedPayment->getCurrencyCode(),
 			// 'lc' => String::substr(AppLocale::getLocale(), 3), 
-			'custom' => $queuedPaymentId,
+			// 'custom' => $queuedPaymentId,
 			// 'notify_url' => $request->url(null, 'payment', 'plugin', array($this->getName(), 'purchase')),  
 			// 'return' => $queuedPayment->getRequestUrl(),
 			// 'cancel_return' => $request->url(null, 'payment', 'plugin', array($this->getName(), 'cancel')),
@@ -149,11 +152,11 @@ class DPSPlugin extends PaymethodPlugin {
 			// 'last_name' => ($user)?$user->getLastname():'',
 			// 'item_number' => $queuedPayment->getAssocId(),
 			// 'cmd' => '_xclick'
-		);
+		// );
 
 		AppLocale::requireComponents(LOCALE_COMPONENT_APPLICATION_COMMON);
 		$templateMgr =& TemplateManager::getManager();
-		$templateMgr->assign('params', $params);
+
 		$templateMgr->assign('dpsFormPostUrl', $request->url(null, 'payment', 'plugin', array($this->getName(), 'purchase')));
 		$templateMgr->display($this->getTemplatePath() . 'paymentForm.tpl');
 		return true;
@@ -195,7 +198,21 @@ class DPSPlugin extends PaymethodPlugin {
 			    error_log("Forming XML for transaction API call");
 
 				try {
-			    	$_SESSION['amount'] = $amount = $request->getUserVar('amount');
+
+			    	// $_SESSION['amount'] = $amount = $request->getUserVar('amount');
+			    	// get amount from $orderId
+
+                    # get access to queuedPayment 
+					$queuedPaymentId = $_SESSION['id'];
+
+					import('classes.payment.ojs.OJSPaymentManager');
+					$ojsPaymentManager = new OJSPaymentManager($request);
+
+					$queuedPayment =& $ojsPaymentManager->getQueuedPayment($orderId);
+					if (!$queuedPayment) {
+                        throw new Exception("OJS: DPS: No order for this transaction or transaction ID lost from session. See DPS statement for OJS order number: TxnData1.");
+					}
+
 			    	$_SESSION['id'] = $orderId = $request->getUserVar('custom');
 
 					$domDoc = new DOMDocument('1.0', 'UTF-8');
