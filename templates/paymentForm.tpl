@@ -47,9 +47,7 @@
 		</tr>
 	</table>
 	{/if}
-	{foreach from=$params key="name" item="value"}
-		<input type="hidden" name="{$name|escape}" value="{$value|escape}" />
-	{/foreach}
+
 
 	<p><input type="submit" name="submitBtn" value="{translate key="common.continue"}" class="button defaultButton" /></p>
 </form>
