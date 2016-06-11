@@ -124,39 +124,18 @@ class DPSPlugin extends PaymethodPlugin {
 		if (!$this->isConfigured()) return false;
 
 		session_start();
+		// store transaction ID
+		$_SESSION['dps_plugin_payment_id'] = $queuedPaymentId;
 
-		AppLocale::requireComponents(LOCALE_COMPONENT_APPLICATION_COMMON);
-		$journal =& $request->getJournal();
-		$user =& $request->getUser();
-
-		// print_r($user);
-		
-		// $params = array(
-			// 'charset' => Config::getVar('i18n', 'client_charset'),
-
-		// TODO figure out what these keys mean eg. business
-// 
-			// 'item_name' => $queuedPayment->getName(),
-			// 'item_description' => $queuedPayment->getDescription(), 
-			// 'amount' => sprintf('%.2F', $queuedPayment->getAmount()),
-			// 'quantity' => 1,
-			// 'no_note' => 1,
-			// 'no_shipping' => 1,
-			// 'currency_code' => $queuedPayment->getCurrencyCode(),
-			// 'lc' => String::substr(AppLocale::getLocale(), 3), 
-			// 'custom' => $queuedPaymentId,
-			// 'notify_url' => $request->url(null, 'payment', 'plugin', array($this->getName(), 'purchase')),  
-			// 'return' => $queuedPayment->getRequestUrl(),
-			// 'cancel_return' => $request->url(null, 'payment', 'plugin', array($this->getName(), 'cancel')),
-			// 'first_name' => ($user)?$user->getFirstName():'',  
-			// 'last_name' => ($user)?$user->getLastname():'',
-			// 'item_number' => $queuedPayment->getAssocId(),
-			// 'cmd' => '_xclick'
-		// );
+		$params = array(
+			'item_name' => $queuedPayment->getName(),
+			'item_description' => $queuedPayment->getDescription(), 
+			'amount' => sprintf('%.2F', $queuedPayment->getAmount()),
+		);
 
 		AppLocale::requireComponents(LOCALE_COMPONENT_APPLICATION_COMMON);
 		$templateMgr =& TemplateManager::getManager();
-
+		$templateMgr->assign('params', $params);
 		$templateMgr->assign('dpsFormPostUrl', $request->url(null, 'payment', 'plugin', array($this->getName(), 'purchase')));
 		$templateMgr->display($this->getTemplatePath() . 'paymentForm.tpl');
 		return true;
@@ -189,7 +168,7 @@ class DPSPlugin extends PaymethodPlugin {
 
 		$paymentStatus = $request->getUserVar('payment_status');
 
-		session_start();
+		@session_start();
 
 		switch (array_shift($args)) {
 
@@ -199,11 +178,8 @@ class DPSPlugin extends PaymethodPlugin {
 
 				try {
 
-			    	// $_SESSION['amount'] = $amount = $request->getUserVar('amount');
-			    	// get amount from $orderId
-
                     # get access to queuedPayment 
-					$queuedPaymentId = $_SESSION['id'];
+					$orderId = $_SESSION['dps_plugin_payment_id'];
 
 					import('classes.payment.ojs.OJSPaymentManager');
 					$ojsPaymentManager = new OJSPaymentManager($request);
@@ -213,7 +189,7 @@ class DPSPlugin extends PaymethodPlugin {
                         throw new Exception("OJS: DPS: No order for this transaction or transaction ID lost from session. See DPS statement for OJS order number: TxnData1.");
 					}
 
-			    	$_SESSION['id'] = $orderId = $request->getUserVar('custom');
+					$amount = sprintf("%01.2f", $queuedPayment->amount);
 
 					$domDoc = new DOMDocument('1.0', 'UTF-8');
 					$rootElt = $domDoc->createElement('GenerateRequest');
@@ -283,7 +259,7 @@ class DPSPlugin extends PaymethodPlugin {
                     exit;
 
 		        } catch (exception $e) {
-					curl_close($ch);
+					@curl_close($ch);
 					error_log("Fatal error with credit card entry stage: ".$e->getCode().": ".$e->getMessage());
 
 					# create a notification about this error
@@ -380,12 +356,10 @@ class DPSPlugin extends PaymethodPlugin {
                         throw new Exception('OJS: DPS: Merchant reference not returned from transaction confirmation');
                     }
 
-                    error_log("Response indicates success from DPS");
-
                     # sanity / double checks
 
                     # get access to queuedPayment to check that details match
-					$queuedPaymentId = $_SESSION['id'];
+					$queuedPaymentId = $_SESSION['dps_plugin_payment_id'];
 
 					import('classes.payment.ojs.OJSPaymentManager');
 					$ojsPaymentManager = new OJSPaymentManager($request);
@@ -395,9 +369,7 @@ class DPSPlugin extends PaymethodPlugin {
                         throw new Exception("OJS: DPS: No order for this transaction or transaction ID lost from session. See DPS statement for OJS order number: TxnData1.");
 					}
 
-					error_log(print_r($queuedPayment, true));
-
-					$amount = $_SESSION['amount'];
+					$amount = $queuedPayment->amount;
                     $paidAmount = (string) $rexml->AmountSettlement[0];
                     $pattern = "/[0-9]+(\.[0-9]{2})?/";
 
@@ -416,8 +388,8 @@ class DPSPlugin extends PaymethodPlugin {
                     }
 
                     # check user id and amount match
-                    if (number_format($paidAmount, 2, '.', '') != $_SESSION['amount']) {
-                    	throw new Exception('Payment amount mismatch on transaction. Expected: '.$_SESSION['amount'].' got: '.$paidAmount);
+                    if (number_format($paidAmount, 2, '.', '') != $amount) {
+                    	throw new Exception('Payment amount mismatch on transaction. Expected: '.$amount.' got: '.$paidAmount);
                     }
 
                     $userId = (string) $rexml->TxnData2[0];
@@ -426,8 +398,7 @@ class DPSPlugin extends PaymethodPlugin {
 					}
 
                     # clear session vars - avoid replay
-                    unset($_SESSION['amount']);
-                    unset($_SESSION['id']);
+                    unset($_SESSION['dps_plugin_payment_id']);
    
 					# tick off queued payment as paid
 					if (!$ojsPaymentManager->fulfillQueuedPayment($queuedPayment, $this->getName())) {
